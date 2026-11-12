@@ -5,6 +5,7 @@ import { Alert, Loading } from '../components/feedback';
 import { ShipmentStatusBadge } from '../components/shipment/status';
 import { Timeline, type TimelineItemInput } from '../components/shipment/Timeline';
 import { SHIPMENT_STATUS_LABELS } from '../components/shipment/status';
+import { useAuth } from '../lib/auth';
 import { useTrackRealtime } from '../lib/realtime';
 import type { PublicTimelineEntry, PublicTrackingResult } from '../lib/types';
 import { formatDateTime, resolveTrackingParam } from '../lib/utils';
@@ -28,6 +29,7 @@ import { Input } from '../components/ui/input';
 export function PublicTrack() {
   const { code: rawParam } = useParams();
   const navigate = useNavigate();
+  const { status } = useAuth();
 
   const code = rawParam ? resolveTrackingParam(rawParam) : '';
 
@@ -37,7 +39,15 @@ export function PublicTrack() {
   const trackApi = useApi<{ data: PublicTrackingResult }>(
     code ? `/api/public/track/${encodeURIComponent(code)}` : null,
   );
-  const liveItems = useTrackRealtime(code, { authenticated: false });
+
+  // El QR entrega un token largo; el código escrito a mano no sirve
+  // para autorizar la sala pública. Si hay sesión, el backend valida
+  // que el usuario sea parte del envío.
+  const qrToken = rawParam && rawParam.length > 40 ? rawParam : null;
+  const liveItems = useTrackRealtime(code, {
+    authenticated: status === 'authenticated',
+    trackingToken: qrToken,
+  });
 
   const info = trackApi.data?.data;
 

@@ -189,8 +189,7 @@ export async function createShipment(
     input.weightLbs,
   );
 
-  const isPrepaid =
-    input.paymentMethod === 'ONLINE' || input.paymentMethod === 'BANK_TRANSFER';
+  const isPrepaid = input.paymentMethod === 'BANK_TRANSFER';
   const needsPayment = isPrepaid && rate.totalCents > 0;
   const chargedAmountCents = rate.totalCents;
   // Contra entrega se cobra siempre en cordobas; la transferencia
@@ -532,12 +531,11 @@ const PAYMENT_GATED_TARGETS: ReadonlySet<ShipmentStatus> = new Set([
 ]);
 
 function assertPaymentAllowsTransition(shipment: {
-  paymentMethod: 'ONLINE' | 'ON_DELIVERY' | 'BANK_TRANSFER';
+  paymentMethod: 'ON_DELIVERY' | 'BANK_TRANSFER';
   paymentStatus: 'NOT_REQUIRED' | 'PENDING' | 'PENDING_REVIEW' | 'PAID' | 'REJECTED' | 'FAILED' | 'REFUNDED';
   status: ShipmentStatus;
 }, target: ShipmentStatus): void {
-  const requiresPrepayment =
-    shipment.paymentMethod === 'ONLINE' || shipment.paymentMethod === 'BANK_TRANSFER';
+  const requiresPrepayment = shipment.paymentMethod === 'BANK_TRANSFER';
   const settled = shipment.paymentStatus === 'PAID' || shipment.paymentStatus === 'NOT_REQUIRED';
 
   if (
@@ -1159,7 +1157,7 @@ export async function updateShipment(
     weightGrams?: number;
     declaredValueCents?: number;
     notes?: string | null;
-    paymentMethod?: 'ONLINE' | 'ON_DELIVERY' | 'BANK_TRANSFER';
+    paymentMethod?: 'ON_DELIVERY' | 'BANK_TRANSFER';
     paymentCurrency?: 'NIO' | 'USD';
   },
   req?: FastifyRequest,

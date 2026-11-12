@@ -4,6 +4,7 @@ import { ZodError } from 'zod';
 import { Prisma } from '@prisma/client';
 import { AppError, type ErrorCode } from '../lib/errors.js';
 import { logger } from '../lib/logger.js';
+import { env } from '../config/env.js';
 
 /**
  * Manejador de errores unificado.
@@ -53,8 +54,21 @@ export const errorHandlerPlugin = fp(async (app) => {
     },
   );
 
-  // 404 explicito con el mismo formato de error que el resto.
+  // 404 explicito con el mismo formato de error que el resto. En la
+  // imagen unica de Render, las rutas GET que no son de la API caen en
+  // la SPA y se responde index.html.
   app.setNotFoundHandler((req, reply) => {
+    const url = req.raw.url ?? '';
+    const isBackendPath =
+      url.startsWith('/api') ||
+      url.startsWith('/ws') ||
+      url.startsWith('/docs') ||
+      url.startsWith('/health');
+
+    if (env.SERVE_FRONTEND && req.method === 'GET' && !isBackendPath) {
+      return reply.sendFile('index.html');
+    }
+
     void reply.status(404).send({
       error: {
         code: 'NOT_FOUND',

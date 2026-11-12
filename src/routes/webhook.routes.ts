@@ -9,9 +9,8 @@ import { requireRole } from './helpers.js';
 /**
  * WEBHOOKS ENTRANTES
  *
- * Tres proveedores, un mismo contrato:
+ * Dos proveedores, un mismo contrato:
  *   /webhooks/courier/:provider   Transportistas (Shipping-do, Guia, ...)
- *   /webhooks/stripe              Pagos
  *   /webhooks/whatsapp            Confirmaciones de entrega de WhatsApp
  *
  * Sobre el cuerpo crudo: la verificacion de firma se hace sobre los
@@ -77,43 +76,6 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
 
         throw error;
       }
-    },
-  );
-
-  // ── Stripe ────────────────────────────────────────────────
-  app.post(
-    '/stripe',
-    {
-      config: { rateLimit: { max: 120, timeWindow: '1 minute' }, rawBody: true },
-      schema: { tags: ['webhooks'], summary: 'Eventos de pago de Stripe' },
-    },
-    async (req, reply) => {
-      const { extractPaymentEvent, processPaymentWebhook, verifyStripeSignature } = await import(
-        '../modules/payments/stripe.js'
-      );
-
-      const signature = req.headers['stripe-signature'];
-      if (typeof signature !== 'string') {
-        return reply.status(400).send({ error: 'Falta la firma de Stripe' });
-      }
-
-      let stripeEvent;
-      try {
-        stripeEvent = verifyStripeSignature(req.rawBody as Buffer, signature);
-      } catch (error) {
-        // 400 y no 401: Stripe considera que es un payload invalido y
-        // deja de reintentar tras el primer fallo.
-        app.log.warn({ err: error }, 'Webhook de Stripe con firma invalida');
-        return reply.status(400).send({ error: 'Firma de Stripe invalida' });
-      }
-
-      const paymentEvent = extractPaymentEvent(stripeEvent);
-      if (!paymentEvent) {
-        return reply.status(200).send({ received: true, handled: false, reason: 'evento no relevante' });
-      }
-
-      const result = await processPaymentWebhook(paymentEvent, req);
-      return reply.status(200).send({ received: true, ...result });
     },
   );
 

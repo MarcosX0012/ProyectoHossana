@@ -4,9 +4,17 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
-const projectRoot = path.resolve(dirname, '..', '..');
+// En desarrollo el archivo vive en `src/config`; compilado, en
+// `dist/src/config`. En ambos casos la raíz del proyecto queda dos o
+// tres niveles arriba, respectivamente.
+const isCompiled = dirname.split(path.sep).includes('dist');
+const projectRoot = path.resolve(dirname, ...(isCompiled ? ['..', '..', '..'] : ['..', '..']));
 
 loadEnv({ path: path.join(projectRoot, '.env') });
+
+// Render inyecta RENDER_EXTERNAL_URL con la URL pública del servicio.
+// Se usa como valor por defecto para CORS y para los enlaces de correo.
+const defaultPublicUrl = process.env.RENDER_EXTERNAL_URL ?? 'http://localhost:5173';
 
 /**
  * Secretos con valores por defecto de desarrollo. En produccion son
@@ -19,8 +27,10 @@ const devFallbacks = {
 };
 
 const booleanish = z
-  .string()
-  .transform((v) => ['1', 'true', 'yes', 'on'].includes(v.trim().toLowerCase()));
+  .union([z.boolean(), z.string()])
+  .transform((v) =>
+    typeof v === 'boolean' ? v : ['1', 'true', 'yes', 'on'].includes(v.trim().toLowerCase()),
+  );
 
 const schema = z
   .object({
@@ -28,7 +38,7 @@ const schema = z
     PORT: z.coerce.number().int().positive().default(3000),
     HOST: z.string().default('0.0.0.0'),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
-    CORS_ORIGINS: z.string().default('http://localhost:5173'),
+    CORS_ORIGINS: z.string().default(defaultPublicUrl),
 
     DATABASE_URL: z.string().min(1, 'DATABASE_URL es obligatorio'),
     TEST_DATABASE_URL: z.string().optional(),
@@ -40,21 +50,19 @@ const schema = z
     PII_ENCRYPTION_KEY: z.string().min(20, 'PII_ENCRYPTION_KEY invalida'),
     TRACKING_SIGNING_SECRET: z.string().min(32),
 
-    PUBLIC_WEB_URL: z.string().default('http://localhost:5173'),
+    PUBLIC_WEB_URL: z.string().default(defaultPublicUrl),
+
+    /**
+     * Imagen única (Render): Fastify sirve el frontend compilado.
+     * En local con nginx queda en false.
+     */
+    SERVE_FRONTEND: booleanish.default(false),
+    FRONTEND_DIST: z.string().default('frontend/dist'),
 
     COURIER_PROVIDER: z.enum(['mock', 'shippingdo', 'guia', 'starken', 'manual']).default('mock'),
     SHIPPINGDO_API_TOKEN: z.string().default(''),
     SHIPPINGDO_BASE_URL: z.string().default('https://api.shippingdo.com'),
     SHIPPINGDO_WEBHOOK_SECRET: z.string().default(''),
-
-    /**
- * @ts-ignore - el tipo z.string().transform() con .default() cambia en zed v4
- * pero el runtime funciona correctamente: el transform devuelve boolean.
- */
-// @ts-ignore
-PAYMENTS_ENABLED: booleanish.default('false'),
-    STRIPE_SECRET_KEY: z.string().default(''),
-    STRIPE_WEBHOOK_SECRET: z.string().default(''),
 
     /**
      * Transferencias manuales. El tipo de cambio se congela en cada
@@ -65,12 +73,7 @@ PAYMENTS_ENABLED: booleanish.default('false'),
     PAYMENT_PROOF_DIR: z.string().default('uploads/payment-proofs'),
     PAYMENT_PROOF_MAX_MB: z.coerce.number().positive().default(5),
 
-    /**
- * @ts-ignore - el tipo z.string().transform() con .default() cambia en zed v4
- * pero el runtime funciona correctamente: el transform devuelve boolean.
- */
-// @ts-ignore
-WHATSAPP_ENABLED: booleanish.default('false'),
+    WHATSAPP_ENABLED: booleanish.default(false),
     WHATSAPP_PHONE_NUMBER_ID: z.string().default(''),
     WHATSAPP_ACCESS_TOKEN: z.string().default(''),
     WHATSAPP_VERIFY_TOKEN: z.string().default(''),
@@ -88,12 +91,7 @@ WHATSAPP_ENABLED: booleanish.default('false'),
      * es la IP del socket: nadie puede rotablear el rate limit
      * falsificando X-Forwarded-For.
      */
-    /**
- * @ts-ignore - el tipo z.string().transform() con .default() cambia en zed v4
- * pero el runtime funciona correctamente: el transform devuelve boolean.
- */
-// @ts-ignore
-TRUST_PROXY: booleanish.default('false'),
+    TRUST_PROXY: booleanish.default(false),
 
     /**
      * Correo saliente (verificacion de cuentas de cliente).
@@ -110,12 +108,7 @@ TRUST_PROXY: booleanish.default('false'),
      *    de la cuenta no funciona, hace falta una contrasena de
      *    aplicacion de 16 caracteres en EMAIL_SMTP_PASS.
      */
-    /**
- * @ts-ignore - el tipo z.string().transform() con .default() cambia en zed v4
- * pero el runtime funciona correctamente: el transform devuelve boolean.
- */
-// @ts-ignore
-EMAIL_ENABLED: booleanish.default('false'),
+    EMAIL_ENABLED: booleanish.default(false),
     EMAIL_PROVIDER: z.enum(['log', 'api', 'smtp']).default('api'),
     EMAIL_FROM: z.string().default('Hossana <no-reply@hossana.local>'),
     EMAIL_API_URL: z.string().default(''),
@@ -123,12 +116,7 @@ EMAIL_ENABLED: booleanish.default('false'),
 
     EMAIL_SMTP_HOST: z.string().default('smtp.gmail.com'),
     EMAIL_SMTP_PORT: z.coerce.number().int().positive().default(465),
-    /**
- * @ts-ignore - el tipo z.string().transform() con .default() cambia en zed v4
- * pero el runtime funciona correctamente: el transform devuelve boolean.
- */
-// @ts-ignore
-EMAIL_SMTP_SECURE: booleanish.default('true'),
+    EMAIL_SMTP_SECURE: booleanish.default(true),
     EMAIL_SMTP_USER: z.string().default(''),
     EMAIL_SMTP_PASS: z.string().default(''),
 
@@ -137,13 +125,7 @@ EMAIL_SMTP_SECURE: booleanish.default('true'),
      * Formato: "<audience>:<secreto>" o solo "<secreto>".
      * Ejemplo: "webhook:mi-secreto-webhook,internal:mi-secreto-jobs"
      */
-    /**
- * @ts-ignore - el tipo z.string().transform() con .default() cambia en zed v4
- * pero el runtime funciona correctamente: el transform devuelve boolean.
- */
-// @ts-ignore
-// @ts-ignore
-SERVICE_API_KEYS: z.string().default(''),
+    SERVICE_API_KEYS: z.string().default(''),
   })
   .superRefine((cfg, ctx) => {
     if (cfg.NODE_ENV !== 'production') return;
@@ -197,6 +179,7 @@ export const env = {
   trackingSigningSecret: readOrFallback('TRACKING_SIGNING_SECRET', parsed.TRACKING_SIGNING_SECRET),
   jwtSecret: readOrFallback('JWT_SECRET', parsed.JWT_SECRET),
   paymentProofDir: path.resolve(projectRoot, parsed.PAYMENT_PROOF_DIR),
+  frontendDist: path.resolve(projectRoot, parsed.FRONTEND_DIST),
   paymentProofMaxBytes: Math.floor(parsed.PAYMENT_PROOF_MAX_MB * 1024 * 1024),
 } as const;
 

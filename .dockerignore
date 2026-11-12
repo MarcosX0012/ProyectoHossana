@@ -1,0 +1,14 @@
+.git
+.github
+node_modules
+dist
+.devdb
+.env
+.env.*
+uploads
+Videos
+images
+temp_pages.txt
+frontend/node_modules
+frontend/dist
+*.md

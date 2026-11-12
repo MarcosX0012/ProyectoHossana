@@ -90,6 +90,6 @@ devuelve `permissions.canAdminister`, y `RequireAdmin` decide.
 ## Notas
 
 - La pantalla de webhooks **no crea** eventos: los webhooks llegan de
-  transportistas/Stripe. Solo inspecciona y reprocesa.
+  transportistas. Solo inspecciona y reprocesa.
 - La seguridad real está en el backend (todos los endpoints validan
   roles); este panel es solo la cara visible.

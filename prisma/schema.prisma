@@ -173,7 +173,7 @@ model Shipment {
   paymentStatus                            PaymentStatus   @default(PENDING)
   amountCents                              Int             @default(0)
   /// Moneda en la que se cobra el envio. Para transferencia puede ser
-  /// NIO o USD; contra entrega y pago en linea usan NIO.
+  /// NIO o USD; contra entrega siempre usa NIO.
   paymentCurrency                          String          @default("NIO")
   /// Importe de referencia en dolares, congelado al crear el envio.
   amountUsdCents                           Int?
@@ -181,7 +181,6 @@ model Shipment {
   exchangeRateNioPerUsd                    Decimal?        @db.Decimal(10, 4)
   currency                                 String          @default("NIO")
   paidAt                                   DateTime?
-  stripePaymentIntentId                    String?         @unique
   weightGrams                              Int?
   volumeCm3                                Int?
   declaredValueCents                       Int?
@@ -288,7 +287,6 @@ model ShipmentEvent {
   idempotencyKey String?        @unique
   metadata       Json?
   createdAt      DateTime       @default(now())
-  idempotencykey String?
   operator       User?          @relation("EventOperator", fields: [operatorId], references: [id])
   shipment       Shipment       @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
@@ -580,7 +578,6 @@ enum EventSource {
 }
 
 enum PaymentMethod {
-  ONLINE
   ON_DELIVERY
   BANK_TRANSFER
 }

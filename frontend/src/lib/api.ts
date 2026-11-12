@@ -44,6 +44,17 @@ export class ApiRequestError extends Error {
   }
 }
 
+function ensureJsonResponse(response: Response, text: string): void {
+  const contentType = response.headers.get('content-type') ?? '';
+  if (response.ok && text && !contentType.includes('application/json')) {
+    throw new ApiRequestError(
+      'El servidor no devolvió JSON. Revisa que el proxy /api apunte a la API.',
+      response.status,
+      'INVALID_RESPONSE',
+    );
+  }
+}
+
 export function getAccessToken(): string | null {
   return accessToken;
 }
@@ -107,6 +118,8 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
     }
   }
 
+  ensureJsonResponse(response, text);
+
   if (!response.ok) {
     const body = payload as ApiErrorBody | null;
     const message =
@@ -154,6 +167,8 @@ export async function apiForm<T>(
       payload = text;
     }
   }
+
+  ensureJsonResponse(response, text);
 
   if (!response.ok) {
     const body = payload as ApiErrorBody | null;
@@ -226,7 +241,7 @@ async function tryRefresh(bodyToken: string | undefined): Promise<boolean> {
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },
-      body: bodyToken ? JSON.stringify({ refreshToken: bodyToken }) : {},
+      body: bodyToken ? JSON.stringify({ refreshToken: bodyToken }) : undefined,
     });
 
     if (!response.ok) return false;

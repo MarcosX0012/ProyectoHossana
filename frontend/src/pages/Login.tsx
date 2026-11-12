@@ -1,6 +1,6 @@
 import { LockKeyhole } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Alert } from '../components/feedback';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -104,7 +104,7 @@ export function Login() {
               <Button type="submit" className="w-full" disabled={loading}>
                 <LockKeyhole className="h-4 w-4" />
                 {loading ? 'Entrando…' : 'Entrar'}
-              </button>
+              </Button>
             </form>
           </CardContent>
         </Card>

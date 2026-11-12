@@ -549,6 +549,15 @@ async function clearDemoShipments(): Promise<number> {
     `carla@${DEMO_DOMAIN}`,
   ];
 
+  // Las claves de idempotencia sobreviven al borrado de envios; si no
+  // se limpian, un replay devuelve un trackingCode que ya no existe.
+  await prisma.idempotencyKey.deleteMany({
+    where: {
+      endpoint: 'POST /api/shipments',
+      key: { startsWith: 'seed-' },
+    },
+  });
+
   const result = await prisma.shipment.deleteMany({
     where: { sender: { email: { in: demoEmails } } },
   });
@@ -581,7 +590,7 @@ interface ShipmentSeed {
   path: SeedPathState[];
   /** Si el envio termina entregado con OTP confirmado por el receptor. */
   deliverWithOtp?: boolean;
-  paymentMethod?: 'ONLINE' | 'ON_DELIVERY';
+  paymentMethod?: 'ON_DELIVERY' | 'BANK_TRANSFER';
   /** Peso facturable en libras. Si se omite, se deriva de los items. */
   weightLbs?: number;
 }
@@ -613,6 +622,7 @@ async function seedShipment(
   seed: ShipmentSeed,
   senderCity: keyof typeof ADDRESSES,
   deptIds: { origin: string; dest: string },
+  staffActor: { userId: string; roles: UserRole[] },
 ): Promise<string | null> {
   // Se valida con el mismo esquema que usa la API: si el seed define un
   // dato invalido, falla aqui y no despues en una transicion.
@@ -666,7 +676,7 @@ async function seedShipment(
 
     await deliverShipment(
       created.trackingCode,
-      { userId: seed.senderId, roles: ['COURIER'] },
+      staffActor,
       { otp: otp.code, photoUrls: [], unverifiedReason: undefined },
       undefined,
       { notify: false },
@@ -682,6 +692,10 @@ async function seedShipments(
   departmentIds: Record<string, string>,
 ): Promise<void> {
   heading('Envios');
+
+  // La entrega demo la registra el administrador: es staff y puede
+  // cerrar el envio sin que este asignado a un repartidor concreto.
+  const staffActor = { userId: users.admin.id, roles: ['ADMIN'] as UserRole[] };
 
   const removed = await clearDemoShipments();
   if (removed > 0) {
@@ -768,7 +782,7 @@ async function seedShipments(
       items: [
         { name: 'Caja de medicamento (receta)', quantity: 1, unitValueCents: 22000, weightGrams: 600 },
       ],
-      paymentMethod: 'ONLINE',
+      paymentMethod: 'ON_DELIVERY',
       path: ['AWAITING_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'AT_DISTRIBUTION_CENTER', 'OUT_FOR_DELIVERY'],
     },
   ];
@@ -778,6 +792,7 @@ async function seedShipments(
       seed,
       senderCityOf(seed.originBranchId),
       deptIdsOf(seed.originBranchId, seed.destinationBranchId),
+      staffActor,
     );
     if (code) ok(`${code} · ${seed.label}`);
   }
@@ -797,7 +812,7 @@ async function seedShipments(
     ],
     path: ['AWAITING_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'AT_DISTRIBUTION_CENTER', 'OUT_FOR_DELIVERY'],
     deliverWithOtp: true,
-  }, senderCityOf(branchIds['DEMO-CHN']!), deptIdsOf(branchIds['DEMO-CHN']!, branchIds['DEMO-GRA']!));
+  }, senderCityOf(branchIds['DEMO-CHN']!), deptIdsOf(branchIds['DEMO-CHN']!, branchIds['DEMO-GRA']!), staffActor);
   if (delivered) ok(`${delivered} · book-chn-gra (entregado y verificado con OTP)`);
 
   // Un envio con incidencia, para que el panel no muestre siempre todo verde.
@@ -813,7 +828,7 @@ async function seedShipments(
       { name: 'Estanteria (desarmada, 3 bulones)', quantity: 1, unitValueCents: 55000, weightGrams: 18400, isFragile: true },
     ],
     path: ['AWAITING_PICKUP', 'PICKED_UP', 'IN_TRANSIT', 'ON_HOLD'],
-  }, senderCityOf(branchIds['DEMO-MGA']!), deptIdsOf(branchIds['DEMO-MGA']!, branchIds['DEMO-EST']!));
+  }, senderCityOf(branchIds['DEMO-MGA']!), deptIdsOf(branchIds['DEMO-MGA']!, branchIds['DEMO-EST']!), staffActor);
   if (exception) ok(`${exception} · furniture-mga-est (en espera)`);
 
   // Resumen para comparar contra lo que muestra el panel.
@@ -849,7 +864,9 @@ export async function main(client: PrismaClient = prisma): Promise<void> {
 
 // Solo se ejecuta cuando se invoca directamente (`tsx prisma/seed.ts`),
 // no cuando se importa desde un test.
-const invokedDirectly = process.argv[1]?.replace(/\\/g, '/').endsWith('prisma/seed.ts');
+const invokedDirectly = /(?:^|[\\/])prisma[\\/]seed\.(?:ts|js)$/.test(
+  process.argv[1] ?? '',
+);
 if (invokedDirectly) {
   main()
     .then(async () => {

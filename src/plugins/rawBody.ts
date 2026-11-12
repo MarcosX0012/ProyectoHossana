@@ -4,9 +4,9 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 /**
  * Conserva el cuerpo crudo de la peticion.
  *
- * Existe por una razon muy concreta: la verificacion de firma de
- * Stripe y de los transportistas se calcula sobre los BYTES EXACTOS
- * que envio el proveedor.
+ * Existe por una razon muy concreta: la verificacion de firma de los
+ * transportistas y de WhatsApp se calcula sobre los BYTES EXACTOS que
+ * envio el proveedor.
  *
  * Si Fastify parsea el JSON y despues hay que re-serializarlo para
  * calcular el HMAC, el resultado puede diferir del original por el

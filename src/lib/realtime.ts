@@ -2,7 +2,9 @@ import type { Server as HttpServer } from 'node:http';
 import { Server as SocketIOServer } from 'socket.io';
 import { env } from '../config/env.js';
 import { logger } from './logger.js';
+import { prisma } from './prisma.js';
 import { verifyAccessToken } from '../modules/auth/tokens.js';
+import { isTrackingTokenExpired, verifyTrackingToken } from '../modules/auth/qrTokens.js';
 
 /**
  * TIEMPO REAL
@@ -99,39 +101,86 @@ export async function initRealtime(httpServer: HttpServer): Promise<SocketIOServ
 
     if (user) {
       void socket.join(`user:${user.userId}`);
+      // `publishToRoles` emite a `role:<rol>`; sin estas salas los
+      // avisos de administracion y operaciones nunca llegaban a nadie.
+      for (const role of user.roles) void socket.join(`role:${role}`);
       logger.debug({ socketId: socket.id, userId: user.userId }, 'Realtime: usuario conectado');
     }
 
     // Unirse a la linea de tiempo de un envio.
-    // `public:<codigo>` es accesible sin login porque el codigo va
-    // firmado en el QR; `private:<codigo>` exige ser emisor o receptor.
-    socket.on('track:join', (payload: unknown, ack?: (r: unknown) => void) => {
+    // - `full`: exige sesion y que el usuario sea emisor, receptor,
+    //   courier asignado o staff.
+    // - `public`: exige el token firmado que viaja en el QR. Un codigo
+    //   de rastreo pelado es enumerable y no autoriza la sala.
+    socket.on('track:join', async (payload: unknown, ack?: (r: unknown) => void) => {
       const parsed = parseTrackRequest(payload);
       if (!parsed) {
         ack?.({ ok: false, error: 'Payload invalido' });
         return;
       }
-      const room = `shipment:${parsed.trackingCode}`;
-      // `join` devuelve void en Socket.io v4; en versiones previas
-      // devolvia una promesa. Se usa el patron correcto segun la
-      // version instalada y se confirma la pertenencia de forma
-      // explicita para que el cliente sepa que ya recibe los eventos.
-      const joinResult = socket.join(room) as unknown as
-        | Promise<void>
-        | undefined;
 
-      const confirm = () => {
+      try {
+        if (parsed.level === 'full') {
+          const actor = socket.data.user;
+          if (!actor) {
+            ack?.({ ok: false, error: 'Sesion requerida para el rastreo completo' });
+            return;
+          }
+
+          const shipment = await prisma.shipment.findUnique({
+            where: { trackingCode: parsed.trackingCode },
+            select: { senderId: true, recipientId: true, assignedcourierid: true },
+          });
+
+          if (!shipment) {
+            ack?.({ ok: false, error: 'Envio no encontrado' });
+            return;
+          }
+
+          const isStaff = actor.roles.includes('ADMIN') || actor.roles.includes('OPERATOR');
+          const isParticipant =
+            shipment.senderId === actor.userId ||
+            shipment.recipientId === actor.userId ||
+            shipment.assignedcourierid === actor.userId;
+
+          if (!isStaff && !isParticipant) {
+            logger.warn(
+              { userId: actor.userId, trackingCode: parsed.trackingCode },
+              'Realtime: acceso denegado a la sala del envio',
+            );
+            ack?.({ ok: false, error: 'No tienes acceso a este envio' });
+            return;
+          }
+        } else {
+          if (!parsed.trackingToken) {
+            ack?.({ ok: false, error: 'Token de rastreo requerido' });
+            return;
+          }
+
+          const verified = verifyTrackingToken(parsed.trackingToken);
+          if (
+            !verified ||
+            verified.trackingCode.toUpperCase() !== parsed.trackingCode ||
+            isTrackingTokenExpired(verified)
+          ) {
+            ack?.({ ok: false, error: 'Token de rastreo invalido o caducado' });
+            return;
+          }
+        }
+
+        const room = `shipment:${parsed.trackingCode}`;
+        await socket.join(room);
         ack?.({ ok: true, room, level: parsed.level });
         logger.debug(
           { trackingCode: parsed.trackingCode, level: parsed.level, socketId: socket.id },
           'Realtime: observando envio',
         );
-      };
-
-      if (joinResult && typeof joinResult.then === 'function') {
-        void joinResult.then(confirm);
-      } else {
-        confirm();
+      } catch (error) {
+        logger.error(
+          { err: error, trackingCode: parsed.trackingCode, socketId: socket.id },
+          'Realtime: error autorizando la sala del envio',
+        );
+        ack?.({ ok: false, error: 'No se pudo autorizar el rastreo' });
       }
     });
 
@@ -150,14 +199,29 @@ export async function initRealtime(httpServer: HttpServer): Promise<SocketIOServ
   return server;
 }
 
-function parseTrackRequest(payload: unknown): { trackingCode: string; level: string } | null {
+interface TrackRequest {
+  trackingCode: string;
+  level: 'public' | 'full';
+  trackingToken?: string;
+}
+
+function parseTrackRequest(payload: unknown): TrackRequest | null {
   if (typeof payload !== 'object' || payload === null) return null;
   const record = payload as Record<string, unknown>;
   const trackingCode =
     typeof record.trackingCode === 'string' ? record.trackingCode.trim().toUpperCase() : null;
-  if (!trackingCode) return null;
-  const level = typeof record.level === 'string' ? record.level : 'public';
-  return { trackingCode, level };
+  if (!trackingCode || trackingCode.length > 80) return null;
+
+  const rawLevel = record.level;
+  if (rawLevel !== undefined && rawLevel !== 'public' && rawLevel !== 'full') return null;
+  const level: 'public' | 'full' = rawLevel === 'full' ? 'full' : 'public';
+
+  const trackingToken =
+    typeof record.trackingToken === 'string' && record.trackingToken.trim()
+      ? record.trackingToken.trim()
+      : undefined;
+
+  return { trackingCode, level, trackingToken };
 }
 
 interface RealtimeTokenPayload {

@@ -3,9 +3,8 @@ import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../lib/prisma.js';
-import { notFound, forbidden, validationError } from '../lib/errors.js';
-import { createPaymentSession, paymentsEnabled, recordCashOnDelivery } from '../modules/payments/stripe.js';
+import { notFound, validationError } from '../lib/errors.js';
+import { recordCashOnDelivery } from '../modules/payments/cashOnDelivery.js';
 import {
   getProofForSubmission,
   getShipmentPaymentInfo,
@@ -21,14 +20,12 @@ import {
   submitTransferSchema,
 } from '../modules/payments/manualTransfer.schema.js';
 import type { AccessTokenClaims } from '../modules/auth/tokens.js';
-import { env as appEnv } from '../config/env.js';
 
 /**
  * RUTAS DE PAGOS
  *
- * Hay tres formas de pago:
+ * Hay dos formas de pago:
  *
- *  - ONLINE: Stripe (integracion heredada, deshabilitada por defecto).
  *  - BANK_TRANSFER: transferencia manual + comprobante + aprobacion
  *    de un administrador. Es el flujo activo para prepago.
  *  - ON_DELIVERY: cobro contra entrega. No bloquea el despacho.
@@ -52,64 +49,6 @@ function fieldValue(fields: Record<string, unknown>, name: string): string | und
 }
 
 export async function paymentRoutes(app: FastifyInstance): Promise<void> {
-  // ── Pago online heredado ───────────────────────────────────
-  app.post(
-    '/shipments/:code/pay',
-    {
-      preHandler: [app.authenticate, app.requireRole('SENDER', 'ADMIN')],
-      schema: {
-        tags: ['payments'],
-        summary: 'Crea la sesion de pago de un envio',
-      },
-    },
-    async (req) => {
-      const { code } = req.params as { code: string };
-      const user = req.currentUser as AccessTokenClaims;
-
-      if (!paymentsEnabled()) {
-        throw validationError('Los pagos en linea no estan habilitados en este entorno');
-      }
-
-      const shipment = await prisma.shipment.findUnique({
-        where: { trackingCode: code.toUpperCase() },
-        select: {
-          id: true,
-          trackingCode: true,
-          senderId: true,
-          amountCents: true,
-          currency: true,
-          paymentStatus: true,
-          paymentMethod: true,
-          itemCount: true,
-        },
-      });
-
-      if (!shipment) throw notFound('Envio');
-      if (shipment.senderId !== user.sub && !user.roles.includes('ADMIN')) {
-        throw forbidden('Solo el emisor puede iniciar el pago');
-      }
-      if (shipment.paymentMethod !== 'ONLINE') {
-        throw validationError('Este envio no usa pago online');
-      }
-      if (shipment.amountCents <= 0) {
-        throw validationError('El envio no tiene importe definido');
-      }
-
-      const session = await createPaymentSession(
-        {
-          trackingCode: shipment.trackingCode,
-          amountCents: shipment.amountCents,
-          currency: shipment.currency,
-          customerEmail: user.email,
-          description: `Envio ${shipment.trackingCode} · ${shipment.itemCount} articulo(s)`,
-        },
-        req,
-      );
-
-      return { data: session };
-    },
-  );
-
   // ── Cuentas bancarias activas ──────────────────────────────
   app.get(
     '/bank-accounts',
@@ -325,11 +264,9 @@ export async function paymentRoutes(app: FastifyInstance): Promise<void> {
         data: {
           enabled: true,
           provider: 'manual',
-          modes: ["BANK_TRANSFER", 'ON_DELIVERY'],
+          modes: ['BANK_TRANSFER', 'ON_DELIVERY'],
           bankTransferEnabled: true,
-          onlineEnabled: paymentsEnabled(),
-          // Nunca se expone si hay clave; solo si el servicio esta activo.
-          webhookConfigured: Boolean(appEnv.STRIPE_WEBHOOK_SECRET),
+          onlineEnabled: false,
         },
       };
     },

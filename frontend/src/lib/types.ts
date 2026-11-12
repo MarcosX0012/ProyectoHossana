@@ -274,7 +274,7 @@ export type StatusTone = 'ok' | 'info' | 'warn' | 'danger' | 'neutral';
 
 export type Visibility = 'PUBLIC' | 'RESTRICTED' | 'FULL';
 
-export type PaymentMethod = 'ONLINE' | 'ON_DELIVERY' | 'BANK_TRANSFER';
+export type PaymentMethod = 'ON_DELIVERY' | 'BANK_TRANSFER';
 export type PaymentStatus =
   | 'NOT_REQUIRED'
   | 'PENDING'

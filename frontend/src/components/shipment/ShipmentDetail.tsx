@@ -29,7 +29,6 @@ import { ShipmentPaymentCard } from './ShipmentPaymentCard';
  */
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
-  ONLINE: 'En línea',
   ON_DELIVERY: 'Contra entrega',
   BANK_TRANSFER: 'Transferencia bancaria',
 };

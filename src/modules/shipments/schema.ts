@@ -87,7 +87,7 @@ export const createShipmentSchema = z.object({
 
   declaredValueCents: z.number().int().min(0).max(MAX_DECLARED_VALUE).optional(),
 
-  paymentMethod: z.enum(['ONLINE', 'ON_DELIVERY', 'BANK_TRANSFER']).default('ON_DELIVERY'),
+  paymentMethod: z.enum(['ON_DELIVERY', 'BANK_TRANSFER']).default('ON_DELIVERY'),
   /**
    * Moneda del cobro. Solo la transferencia manual permite elegir USD;
    * contra entrega se cobra siempre en cordobas.
@@ -157,7 +157,7 @@ export const updateShipmentSchema = z
     weightGrams: z.number().int().min(1).max(MAX_WEIGHT_KG * 1000).optional(),
     declaredValueCents: z.number().int().min(0).max(MAX_DECLARED_VALUE).optional(),
     notes: z.string().trim().max(1000).nullish(),
-    paymentMethod: z.enum(['ONLINE', 'ON_DELIVERY', 'BANK_TRANSFER']).optional(),
+    paymentMethod: z.enum(['ON_DELIVERY', 'BANK_TRANSFER']).optional(),
     paymentCurrency: z.enum(['NIO', 'USD']).optional(),
   })
   .refine((v) => Object.keys(v).length > 0, 'No hay campos para actualizar');

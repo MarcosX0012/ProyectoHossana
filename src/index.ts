@@ -26,7 +26,7 @@ async function main(): Promise<void> {
       port: env.PORT,
       courier: env.COURIER_PROVIDER,
       whatsapp: env.WHATSAPP_ENABLED ? 'enabled' : 'disabled',
-      payments: env.PAYMENTS_ENABLED ? 'enabled' : 'disabled',
+      payments: 'manual',
     },
     'Iniciando Hossana API',
   );

@@ -14,7 +14,6 @@ import { CreateShipmentWizard } from './pages/CreateShipmentWizard';
 import { Dashboard } from './pages/Dashboard';
 import { Login } from './pages/Login';
 import { NotificationsPage } from './pages/NotificationsPage';
-import { Pagar } from './pages/Pagar';
 import { PublicTrack } from './pages/PublicTrack';
 import { ShipmentDetailPage } from './pages/ShipmentDetailPage';
 import { ShipmentsList } from './pages/ShipmentsList';
@@ -39,7 +38,7 @@ import { Pagos } from './pages/admin/Pagos';
  *     /tarifas                      â†’ tarifario pÃºblico
  *
  *   PÃºblico general:
- *     /login, /pagar/:id, /rastreo/:code, /track/:code
+ *     /login, /rastreo/:code, /track/:code
  *
  *   Panel interno (RequireAuth):
  *     /                â†’ redirige segÃºn el rol
@@ -61,7 +60,6 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/pagar/:paymentIntentId" element={<Pagar />} />
           <Route path="/rastreo" element={<PublicTrack />} />
           <Route path="/rastreo/:code" element={<PublicTrack />} />
           <Route path="/track/:code" element={<PublicTrack />} />

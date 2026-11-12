@@ -6,6 +6,7 @@ import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
+import fastifyStatic from '@fastify/static';
 
 import { env } from './config/env.js';
 import { logger } from './lib/logger.js';
@@ -50,7 +51,8 @@ export async function buildApp(options: { logger?: boolean } = {}) {
     // `logger` lanza FST_ERR_LOG_INVALID_LOGGER_CONFIG y el proceso
     // muere al arrancar.
     ...(options.logger === false ? { logger: false as const } : { loggerInstance: logger }),
-    trustProxy: true, // necessario para que req.ip sea la IP real detras de un proxy
+    // Solo confiar en X-Forwarded-* cuando hay un proxy real delante.
+    trustProxy: env.TRUST_PROXY,
     bodyLimit: 2 * 1024 * 1024, // 2 MB: suficiente para fotos en base64, no para archivos grandes
     disableRequestLogging: env.isProduction,
     ajv: {
@@ -114,7 +116,10 @@ export async function buildApp(options: { logger?: boolean } = {}) {
     hook: 'onRequest',
   });
 
-  // â”€â”€ Limite de tasa global â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Autenticacion antes del rate limit: el keyGenerator usa req.currentUser.
+  await app.register(authPlugin);
+
+  // Limite de tasa global.
   await app.register(rateLimit, {
     global: true,
     max: 300,
@@ -133,9 +138,6 @@ export async function buildApp(options: { logger?: boolean } = {}) {
     }),
     addHeadersOnExceeding: { 'x-ratelimit-remaining': true },
   });
-
-  // â”€â”€ Autenticacion â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  await app.register(authPlugin);
 
   // â”€â”€ Documentacion â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   await app.register(swagger, {
@@ -177,6 +179,16 @@ export async function buildApp(options: { logger?: boolean } = {}) {
     routePrefix: '/docs',
     uiConfig: { docExpansion: 'list', deepLinking: true },
   });
+
+  // ── Frontend compilado (imagen única para Render) ─────────────
+  // En local el frontend lo sirve nginx y esta rama no se ejecuta.
+  if (env.SERVE_FRONTEND) {
+    await app.register(fastifyStatic, {
+      root: env.frontendDist,
+      prefix: '/',
+      index: ['index.html'],
+    });
+  }
 
   // â”€â”€ Rutas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   await app.register(

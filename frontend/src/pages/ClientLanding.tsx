@@ -177,7 +177,9 @@ export function ClientLanding() {
     void (async () => {
       try {
         const depts = await api<{ data: Department[] }>('/api/departments');
-        if (!cancelled) setDepartments(depts.data);
+        if (!cancelled) {
+          setDepartments(Array.isArray(depts?.data) ? depts.data : []);
+        }
       } catch {
         // La portada no depende de la API: si falla, se muestran los
         // departamentos de referencia.

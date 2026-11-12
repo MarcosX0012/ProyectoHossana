@@ -11,9 +11,10 @@ import type { RealtimeShipmentEvent } from './types';
  *   shipment:status -> {type, trackingCode, status, at}
  *
  * Para entrar a la sala el cliente emite `track:join` con
- * `{trackingCode, level}` donde `level` es `'public'` (sin sesión)
- * o `'full'` (sesión iniciada). El backend valida el token del
- * handshake cuando `level === 'full'`.
+ * `{trackingCode, level, trackingToken?}`. `level: 'full'` exige una
+ * sesión y autorización sobre el envío; `level: 'public'` exige el
+ * token firmado del QR (`trackingToken`). Un código de rastreo pelado
+ * no autoriza la sala.
  */
 
 export interface LiveTimelineItem {
@@ -34,9 +35,9 @@ export interface LiveTimelineItem {
  */
 export function useTrackRealtime(
   trackingCode: string | null,
-  options: { authenticated?: boolean } = {},
+  options: { authenticated?: boolean; trackingToken?: string | null } = {},
 ): LiveTimelineItem[] {
-  const { authenticated = false } = options;
+  const { authenticated = false, trackingToken = null } = options;
   const [liveItems, setLiveItems] = useState<LiveTimelineItem[]>([]);
   const seenIds = useRef<Set<string>>(new Set());
 
@@ -47,6 +48,12 @@ export function useTrackRealtime(
 
     let cancelled = false;
     const token = authenticated ? getAccessToken() : null;
+    const level: 'public' | 'full' = authenticated && token ? 'full' : 'public';
+
+    // Sin sesión solo se puede escuchar un enlace de QR firmado. Si el
+    // usuario escribió el código a mano, la página sigue funcionando
+    // con los datos HTTP, pero no se abre el socket.
+    if (level === 'public' && !trackingToken) return;
 
     const socket: Socket = io(undefined, {
       path: '/ws',
@@ -57,7 +64,8 @@ export function useTrackRealtime(
     const join = () => {
       socket.emit('track:join', {
         trackingCode,
-        level: authenticated ? 'full' : 'public',
+        level,
+        ...(level === 'public' ? { trackingToken } : {}),
       });
     };
     socket.on('connect', join);
@@ -82,7 +90,7 @@ export function useTrackRealtime(
       socket.emit('track:leave', { trackingCode });
       socket.disconnect();
     };
-  }, [trackingCode, authenticated]);
+  }, [trackingCode, authenticated, trackingToken]);
 
   return liveItems;
 }

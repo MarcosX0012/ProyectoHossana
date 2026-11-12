@@ -63,8 +63,7 @@ export async function dispatchToCourier(
   // El pago pendiente bloquea el despacho, salvo que sea contra entrega.
   // La transferencia manual tambien es prepago: no se despacha hasta que
   // un administrador apruebe el comprobante.
-  const requiresPrepayment =
-    shipment.paymentMethod === 'ONLINE' || shipment.paymentMethod === "BANK_TRANSFER";
+  const requiresPrepayment = shipment.paymentMethod === 'BANK_TRANSFER';
   const paymentSettled =
     shipment.paymentStatus === 'PAID' || shipment.paymentStatus === 'NOT_REQUIRED';
   if (requiresPrepayment && !paymentSettled) {
