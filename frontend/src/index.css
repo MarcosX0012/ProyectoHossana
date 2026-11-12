@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+
+    /* Navegacion por anclas suave. El padding compensa el navbar fijo
+       para que el titulo de cada seccion nunca quede debajo de el. */
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-900;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+}
+
+/**
+ * PORTADA COMO LIBRO
+ *
+ * Cuando la portada esta montada pone `data-snap="on"` en <html> y
+ * cada seccion se engancha al hacer scroll: al bajar, la siguiente
+ * entra COMPLETA, como pasar de hoja en un libro.
+ *
+ * - `proximity` es el modo base: engancha cuando la seccion esta
+ *   cerca, pero nunca atrapa el scroll, asi todo el contenido se lee.
+ * - `mandatory` solo se activa si ademas la portada marco
+ *   `data-snap-fit="yes"`, es decir, si TODAS las secciones caben en
+ *   la ventana (lo calcula la portada tras montar y al redimensionar).
+ *   Asi, en pantallas bajas o con textos largos, nunca queda nada
+ *   fuera de alcance.
+ */
+html[data-snap='on'] {
+  scroll-snap-type: y proximity;
+  scroll-padding-top: 6rem;
+}
+
+@media (min-width: 1024px) {
+  html[data-snap='on'][data-snap-fit='yes'] {
+    scroll-snap-type: y mandatory;
+  }
+}
+
+html[data-snap='on'] .snap-page {
+  scroll-snap-align: start;
+  scroll-snap-stop: normal;
+  min-height: 100svh;
+  height: auto;
+  overflow: visible;
+}

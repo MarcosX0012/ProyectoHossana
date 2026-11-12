@@ -1,0 +1,664 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                                           String              @id @default(uuid()) @db.Uuid
+  email                                        String              @unique
+  /// Correo opcional para avisos. Si esta vacio se usa `email`.
+  notificationEmail                            String?
+  phoneCipher                                  String?
+  phoneHash                                    String?             @unique
+  passwordHash                                 String
+  firstName                                    String
+  lastName                                     String
+  status                                       UserStatus          @default(PENDING_VERIFICATION)
+  roles                                        UserRole[]          @default([])
+  locale                                       String              @default("es")
+  emailVerifiedAt                              DateTime?
+  phoneVerifiedAt                              DateTime?
+  lastLoginAt                                  DateTime?
+  createdAt                                    DateTime            @default(now())
+  updatedAt                                    DateTime            @updatedAt
+  employeenumber                               String?             @unique
+  employeeid                                   String?             @unique
+  courieravailability                          String?             @default("AVAILABLE")
+  isactive                                     Boolean?            @default(true)
+  hiredate                                     DateTime?           @db.Timestamp(6)
+  agencyid                                     String?             @db.Uuid
+  phone                                        String?
+  auditLogs                                    AuditLog[]
+  custodyRecords                               CustodyRecord[]
+  notifications                                Notification[]
+  otpCodes                                     OtpCode[]
+  refreshTokens                                RefreshToken[]
+  operatedEvents                               ShipmentEvent[]     @relation("EventOperator")
+  shipments_shipments_assignedcourieridTousers Shipment[]          @relation("shipments_assignedcourieridTousers")
+  recipientShipments                           Shipment[]          @relation("ShipmentRecipient")
+  senderShipments                              Shipment[]          @relation("ShipmentSender")
+  verificationTokens                           VerificationToken[]
+  paymentSubmissions                           PaymentSubmission[] @relation("PaymentSubmittedBy")
+  reviewedPaymentSubmissions                   PaymentSubmission[] @relation("PaymentReviewedBy")
+
+  @@index([status])
+  @@index([courieravailability], map: "idx_users_courieravail")
+  @@index([employeenumber], map: "idx_users_employeenumber")
+  @@map("users")
+}
+
+/// Refresh tokens con rotacion y deteccion de reutilizacion.
+/// Si se reutiliza un token ya revocado, se revoca toda la familia
+/// (robo de credenciales).
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  familyId  String    @db.Uuid
+  expiresAt DateTime
+  revokedAt DateTime?
+  reason    String?
+  userAgent String?
+  ip        String?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+model VerificationToken {
+  id         String       @id @default(uuid()) @db.Uuid
+  userId     String       @db.Uuid
+  purpose    TokenPurpose
+  codeHash   String       @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime     @default(now())
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@map("verification_tokens")
+}
+
+/// OTP de confirmacion de entrega. La clave anti-fraude del sistema:
+/// lo confirma el RECEPTOR, no el repartidor.
+model OtpCode {
+  id          String     @id @default(uuid()) @db.Uuid
+  userId      String     @db.Uuid
+  shipmentId  String?    @db.Uuid
+  purpose     OtpPurpose
+  codeHash    String     @unique
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  attempts    Int        @default(0)
+  maxAttempts Int        @default(5)
+  createdAt   DateTime   @default(now())
+  shipment    Shipment?  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@map("otp_codes")
+}
+
+model Branch {
+  id                   String          @id @default(uuid()) @db.Uuid
+  code                 String          @unique
+  name                 String
+  city                 String
+  countryCode          String          @default("NI")
+  addressLine          String?
+  latitude             Decimal?        @db.Decimal(9, 6)
+  longitude            Decimal?        @db.Decimal(9, 6)
+  isActive             Boolean         @default(true)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  custodyRecords       CustodyRecord[]
+  destinationShipments Shipment[]      @relation("ShipmentDestinationBranch")
+  shipments            Shipment[]      @relation("ShipmentOriginBranch")
+
+  @@index([isActive])
+  @@map("branches")
+}
+
+model Address {
+  id                 String     @id @default(uuid()) @db.Uuid
+  label              String?
+  contactName        String
+  contactPhone       String
+  line1              String
+  line2              String?
+  city               String
+  region             String?
+  postalCode         String?
+  countryCode        String     @default("NI")
+  instructions       String?
+  latitude           Decimal?   @db.Decimal(9, 6)
+  longitude          Decimal?   @db.Decimal(9, 6)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  recipientShipments Shipment[] @relation("ShipmentRecipientAddress")
+  senderShipments    Shipment[] @relation("ShipmentSenderAddress")
+
+  @@map("addresses")
+}
+
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model Shipment {
+  id                                       String          @id @default(uuid()) @db.Uuid
+  /// Codigo unico e inmutable. Formato HOS-2026-000123.
+  /// Generado por la secuencia global `shipment_code_seq`, que NUNCA se reinicia.
+  trackingCode                             String          @unique
+  status                                   ShipmentStatus  @default(CREATED)
+  statusChangedAt                          DateTime        @default(now())
+  senderId                                 String          @db.Uuid
+  recipientId                              String?         @db.Uuid
+  senderAddressId                          String          @db.Uuid
+  recipientAddressId                       String          @db.Uuid
+  originBranchId                           String?         @db.Uuid
+  destinationBranchId                      String?         @db.Uuid
+  courierCode                              String?
+  courierShipmentId                        String?
+  courierTrackingNumber                    String?         @unique
+  courierSyncedAt                          DateTime?
+  /// Hash del token firmado que viaja dentro del QR publico.
+  /// Permite rotar el secreto sin invalidar los QR ya impresos.
+  qrTokenHash                              String          @unique
+  paymentMethod                            PaymentMethod   @default(ON_DELIVERY)
+  paymentStatus                            PaymentStatus   @default(PENDING)
+  amountCents                              Int             @default(0)
+  /// Moneda en la que se cobra el envio. Para transferencia puede ser
+  /// NIO o USD; contra entrega y pago en linea usan NIO.
+  paymentCurrency                          String          @default("NIO")
+  /// Importe de referencia en dolares, congelado al crear el envio.
+  amountUsdCents                           Int?
+  /// Tipo de cambio NIO por USD usado al crear el envio.
+  exchangeRateNioPerUsd                    Decimal?        @db.Decimal(10, 4)
+  currency                                 String          @default("NIO")
+  paidAt                                   DateTime?
+  stripePaymentIntentId                    String?         @unique
+  weightGrams                              Int?
+  volumeCm3                                Int?
+  declaredValueCents                       Int?
+  itemCount                                Int             @default(0)
+  estimatedDeliveryAt                      DateTime?
+  dispatchedAt                             DateTime?
+  deliveredAt                              DateTime?
+  cancelledAt                              DateTime?
+  cancelReason                             String?
+  /// Bloqueo optimista. Evita que dos operadores apliquen
+  /// transiciones concurrentes sobre el mismo envio.
+  version                                  Int             @default(1)
+  createdAt                                DateTime        @default(now())
+  updatedAt                                DateTime        @updatedAt
+  /// Intentos fallidos de despacho. 3+ => requiere intervencion de admin.
+  courierSyncAttempts                      Int             @default(0)
+  /// Ultimo error de comunicacion con el transportista (diagnostico).
+  lastSyncError                            String?
+  /// Ultima consulta al transportista por polling (respaldo de webhooks).
+  lastSyncedAt                             DateTime?
+  baseAmountCents                          Int?
+  deliveryCents                            Int?
+  destDepartmentId                         String?
+  extraLbsCharged                          Decimal?        @db.Decimal(5, 2)
+  extraPerLbCents                          Int?
+  lbsChargedMin                            Decimal?        @db.Decimal(5, 2)
+  originDepartmentId                       String?
+  routeType                                RouteType?
+  shippingRateId                           String?
+  weightLbs                                Decimal?        @db.Decimal(5, 2)
+  weightUnit                               WeightUnit?     @default(LB)
+  weightUsedForCalc                        Decimal?        @db.Decimal(5, 2)
+  assignedcourierid                        String?         @db.Uuid
+  custody                                  CustodyRecord[]
+  notifications                            Notification[]
+  otpCodes                                 OtpCode[]
+  events                                   ShipmentEvent[]
+  items                                    ShipmentItem[]
+  paymentSubmissions                       PaymentSubmission[]
+  users_shipments_assignedcourieridTousers User?           @relation("shipments_assignedcourieridTousers", fields: [assignedcourierid], references: [id], onUpdate: NoAction, map: "fk_shipments_assigned_courier")
+  destDepartment                           Department?     @relation("ShipmentDestDept", fields: [destDepartmentId], references: [id])
+  destinationBranch                        Branch?         @relation("ShipmentDestinationBranch", fields: [destinationBranchId], references: [id])
+  originBranch                             Branch?         @relation("ShipmentOriginBranch", fields: [originBranchId], references: [id])
+  originDepartment                         Department?     @relation("ShipmentOriginDept", fields: [originDepartmentId], references: [id])
+  recipientAddress                         Address         @relation("ShipmentRecipientAddress", fields: [recipientAddressId], references: [id])
+  recipient                                User?           @relation("ShipmentRecipient", fields: [recipientId], references: [id])
+  senderAddress                            Address         @relation("ShipmentSenderAddress", fields: [senderAddressId], references: [id])
+  sender                                   User            @relation("ShipmentSender", fields: [senderId], references: [id])
+  shippingRate                             ShippingRate?   @relation(fields: [shippingRateId], references: [id])
+
+  @@index([status])
+  @@index([status, estimatedDeliveryAt])
+  @@index([senderId, createdAt(sort: Desc)])
+  @@index([recipientId, createdAt(sort: Desc)])
+  @@index([courierTrackingNumber])
+  @@index([courierTrackingNumber, status])
+  @@index([lastSyncedAt])
+  @@index([createdAt(sort: Desc)])
+  @@index([senderId, status])
+  @@index([recipientId, status])
+  @@map("shipments")
+}
+
+/// Productos DENTRO de un paquete. Nunca se rastrean de forma
+/// independiente: su historial vive en el envio que los contiene.
+model ShipmentItem {
+  id             String   @id @default(uuid()) @db.Uuid
+  shipmentId     String   @db.Uuid
+  /// Codigo interno del producto dentro de este envio.
+  lineCode       String
+  sku            String?
+  name           String
+  description    String?
+  quantity       Int      @default(1)
+  unitValueCents Int      @default(0)
+  weightGrams    Int?
+  isFragile      Boolean  @default(false)
+  isHazmat       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  shipment       Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@unique([shipmentId, lineCode])
+  @@map("shipment_items")
+}
+
+/// Cada fila es un hito visible en la linea de tiempo.
+/// `sequence` es monotono dentro del envio: garantiza orden total
+/// incluso si dos eventos llegan con la misma marca de tiempo.
+model ShipmentEvent {
+  id             String         @id @default(uuid()) @db.Uuid
+  shipmentId     String         @db.Uuid
+  sequence       Int
+  status         ShipmentStatus
+  title          String
+  description    String?
+  locationName   String?
+  occurredAt     DateTime
+  source         EventSource    @default(SYSTEM)
+  operatorId     String?        @db.Uuid
+  /// Id del evento en el sistema del courier.
+  /// UNIQUE => idempotencia. Un webhook reenviado no duplica el hito.
+  courierEventId String?        @unique
+  /// Clave de idempotencia interna para eventos manuales repetidos.
+  idempotencyKey String?        @unique
+  metadata       Json?
+  createdAt      DateTime       @default(now())
+  idempotencykey String?
+  operator       User?          @relation("EventOperator", fields: [operatorId], references: [id])
+  shipment       Shipment       @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@unique([shipmentId, sequence])
+  @@index([shipmentId, occurredAt(sort: Desc)])
+  @@index([status, occurredAt])
+  @@map("shipment_events")
+}
+
+/// Quien tuvo el paquete, cuando, donde y como se verifico.
+/// Es lo que permite dirimir responsabilidades si un paquete se pierde.
+model CustodyRecord {
+  id         String        @id @default(uuid()) @db.Uuid
+  shipmentId String        @db.Uuid
+  handlerId  String?       @db.Uuid
+  branchId   String?       @db.Uuid
+  action     CustodyAction
+  scanCode   String?
+  latitude   Decimal?      @db.Decimal(9, 6)
+  longitude  Decimal?      @db.Decimal(9, 6)
+  note       String?
+  occurredAt DateTime      @default(now())
+  createdAt  DateTime      @default(now())
+  branch     Branch?       @relation(fields: [branchId], references: [id])
+  handler    User?         @relation(fields: [handlerId], references: [id])
+  shipment   Shipment      @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId, occurredAt(sort: Desc)])
+  @@index([handlerId])
+  @@map("custody_records")
+}
+
+/// Buzon de entrada de webhooks. Guarda el payload crudo antes de
+/// procesarlo: permite auditar y reprocesar sin volver a pedir los
+/// datos al proveedor.
+model WebhookInbox {
+  id             String        @id @default(uuid()) @db.Uuid
+  provider       String
+  externalId     String?
+  eventType      String?
+  signatureValid Boolean       @default(false)
+  payload        Json
+  status         WebhookStatus @default(RECEIVED)
+  error          String?
+  attempts       Int           @default(0)
+  receivedAt     DateTime      @default(now())
+  processedAt    DateTime?
+
+  @@unique([provider, externalId])
+  @@index([status, receivedAt])
+  @@map("webhook_inbox")
+}
+
+model Notification {
+  id                String              @id @default(uuid()) @db.Uuid
+  userId            String              @db.Uuid
+  shipmentId        String?             @db.Uuid
+  channel           NotificationChannel
+  template          String
+  payload           Json
+  status            NotificationStatus  @default(QUEUED)
+  providerMessageId String?
+  error             String?
+  attempts          Int                 @default(0)
+  queuedAt          DateTime            @default(now())
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  /// Marca de lectura para el centro de notificaciones dentro de la app.
+  readAt            DateTime?
+  shipment          Shipment?           @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, queuedAt])
+  @@index([userId, queuedAt(sort: Desc)])
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+/// Bitacora de seguridad. Toda lectura de datos de envio se registra.
+model AuditLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String?  @db.Uuid
+  action       String
+  entity       String
+  entityId     String?
+  shipmentCode String?
+  outcome      String   @default("SUCCESS")
+  ip           String?
+  userAgent    String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  user         User?    @relation(fields: [userId], references: [id])
+
+  @@index([entity, entityId])
+  @@index([shipmentCode, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
+
+/// Claves de idempotencia de la API. Un POST repetido con la misma
+/// clave devuelve el resultado original en vez de duplicar la operacion.
+model IdempotencyKey {
+  key          String    @db.VarChar(120)
+  userId       String?   @db.Uuid
+  endpoint     String
+  requestHash  String
+  responseCode Int?
+  responseBody Json?
+  lockedAt     DateTime  @default(now())
+  completedAt  DateTime?
+  expiresAt    DateTime
+
+  @@id([key, endpoint])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}
+
+model Department {
+  id            String         @id @default(uuid())
+  code          String         @unique
+  name          String
+  countryCode   String         @default("NI")
+  isActive      Boolean        @default(true)
+  sortOrder     Int            @default(0)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  destRates     ShippingRate[] @relation("DestDepartment")
+  originRates   ShippingRate[] @relation("OriginDepartment")
+  shipmentsTo   Shipment[]     @relation("ShipmentDestDept")
+  shipmentsFrom Shipment[]     @relation("ShipmentOriginDept")
+}
+
+model ShippingRate {
+  id                 String     @id @default(uuid())
+  originDepartmentId String
+  destDepartmentId   String
+  routeType          RouteType
+  baseAmountCents    Int
+  includedLbs        Decimal    @default(2.00) @db.Decimal(4, 2)
+  extraPerLbCents    Int
+  deliveryCents      Int        @default(0)
+  currency           String     @default("NIO")
+  isActive           Boolean    @default(true)
+  priority           Int        @default(0)
+  notes              String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  destDepartment     Department @relation("DestDepartment", fields: [destDepartmentId], references: [id])
+  originDepartment   Department @relation("OriginDepartment", fields: [originDepartmentId], references: [id])
+  shipments          Shipment[]
+
+  @@unique([originDepartmentId, destDepartmentId])
+  @@index([originDepartmentId, destDepartmentId, isActive])
+}
+
+/// Cuenta bancaria de Hossana para recibir transferencias manuales.
+/// El cliente elige la cuenta segun la moneda de pago del envio.
+model BankAccount {
+  id            String              @id @default(uuid()) @db.Uuid
+  /// NIO o USD.
+  currency      String
+  bankName      String
+  accountName   String
+  accountNumber String
+  accountType   String              @default("CUENTA_CORRIENTE")
+  isActive      Boolean             @default(true)
+  sortOrder     Int                 @default(0)
+  notes         String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  submissions   PaymentSubmission[]
+
+  @@unique([currency, accountNumber])
+  @@index([currency, isActive])
+  @@map("bank_accounts")
+}
+
+/// Comprobante de transferencia enviado por el cliente y revisado por
+/// un administrador. Cada reintento despues de un rechazo crea una fila
+/// nueva: el historial completo queda auditado.
+model PaymentSubmission {
+  id                  String                  @id @default(uuid()) @db.Uuid
+  shipmentId          String                  @db.Uuid
+  bankAccountId       String                  @db.Uuid
+  submittedById       String                  @db.Uuid
+  reviewedById        String?                 @db.Uuid
+  status              PaymentSubmissionStatus @default(PENDING_REVIEW)
+  /// Moneda del comprobante (NIO o USD).
+  currency            String
+  /// Importe esperado en la moneda del comprobante.
+  amountCents         Int
+  /// Importe esperado en cordobas, para conciliar contra el envio.
+  amountNioCents      Int
+  exchangeRateNioPerUsd Decimal?              @db.Decimal(10, 4)
+  reference           String?
+  senderName          String?
+  note                String?
+  proofPath           String
+  proofMimeType       String
+  proofOriginalName   String?
+  proofSizeBytes      Int
+  reviewedAt          DateTime?
+  reviewNote          String?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  shipment            Shipment                @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  bankAccount         BankAccount             @relation(fields: [bankAccountId], references: [id])
+  submittedBy         User                    @relation("PaymentSubmittedBy", fields: [submittedById], references: [id])
+  reviewedBy          User?                   @relation("PaymentReviewedBy", fields: [reviewedById], references: [id])
+
+  @@index([shipmentId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("payment_submissions")
+}
+
+model EmailVerificationOtp {
+  id          String    @id @default(uuid())
+  email       String
+  otpHash     String
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5)
+  expiresAt   DateTime
+  verified    Boolean   @default(false)
+  consumedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([email])
+}
+
+model ProductCatalog {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  code      String    @unique
+  active    Boolean?  @default(true)
+  sortorder Int?      @default(0)
+  createdat DateTime? @default(now()) @db.Timestamp(6)
+  updatedat DateTime? @default(now()) @db.Timestamp(6)
+
+  @@map("product_catalog")
+}
+
+enum UserRole {
+  SENDER
+  RECIPIENT
+  OPERATOR
+  COURIER
+  ADMIN
+}
+
+enum UserStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+}
+
+enum TokenPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+/// Estados posibles de un envio.
+/// El orden de los grupos refleja el flujo real del proceso.
+enum ShipmentStatus {
+  CREATED
+  CONFIRMED
+  AWAITING_PAYMENT
+  AWAITING_PICKUP
+  PICKED_UP
+  IN_TRANSIT
+  AT_DISTRIBUTION_CENTER
+  OUT_FOR_DELIVERY
+  DELIVERED
+  DELIVERY_ATTEMPTED
+  ON_HOLD
+  EXCEPTION
+  RETURNING
+  RETURNED
+  LOST
+  CANCELLED
+}
+
+enum EventSource {
+  SYSTEM
+  MANUAL
+  SCAN
+  COURIER_API
+  WEBHOOK
+}
+
+enum PaymentMethod {
+  ONLINE
+  ON_DELIVERY
+  BANK_TRANSFER
+}
+
+enum PaymentStatus {
+  NOT_REQUIRED
+  PENDING
+  PENDING_REVIEW
+  PAID
+  REJECTED
+  FAILED
+  REFUNDED
+}
+
+enum PaymentSubmissionStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum CustodyAction {
+  PICKUP
+  SCAN_IN
+  SCAN_OUT
+  HANDOFF
+  SORT
+  LOAD_VEHICLE
+  DELIVER
+  ATTEMPT_DELIVERY
+  RETURN
+}
+
+enum NotificationChannel {
+  WHATSAPP
+  EMAIL
+  SMS
+  PUSH
+  IN_APP
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENDING
+  SENT
+  DELIVERED
+  FAILED
+  SKIPPED
+}
+
+enum WebhookStatus {
+  /// Recibido y validado, pendiente de procesar.
+  RECEIVED
+  /// Aplicado al menos un evento.
+  PROCESSED
+  /// Firma invalida: se registro para auditoria pero no se aplico.
+  REJECTED
+  /// Ya estaba procesado; no se hizo nada.
+  DUPLICATE
+  /// Se recibio pero ningun evento pudo aplicarse (transicion invalida).
+  FAILED
+  /// Payload legitimo pero sin estados mapeables a nuestro modelo.
+  IGNORED
+}
+
+enum WeightUnit {
+  KG
+  LB
+}
+
+enum RouteType {
+  LOCAL
+  SHORT
+  MEDIUM
+  LONG
+}
+
+enum OtpPurpose {
+  DELIVERY_CONFIRMATION
+  EMAIL_VERIFICATION
+  PHONE_VERIFICATION
+}
