@@ -135,7 +135,7 @@ export function ClientShell({ children }: { children: ReactNode }) {
                 </Button>
               </>
             ) : (
-              <Button size="sm" onClick={() => navigate('/cliente/login')}>
+              <Button size="sm" className="text-black" onClick={() => navigate('/cliente/login')}>
                 Mi cuenta
               </Button>
             )}
@@ -178,7 +178,7 @@ export function ClientShell({ children }: { children: ReactNode }) {
                 ) : (
                   <Button
                     size="sm"
-                    className="flex-1"
+                    className="flex-1 text-black"
                     onClick={() => navigate('/cliente/login')}
                   >
                     Mi cuenta
